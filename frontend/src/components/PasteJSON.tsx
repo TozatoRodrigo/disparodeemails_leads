@@ -56,7 +56,13 @@ export default function PasteJSON({ apiUrl, onSuccess }: PasteJSONProps) {
       }
 
       // Enviar JSON diretamente (mais eficiente)
-      const response = await fetch(`${apiUrl}/api/upload/json`, {
+      // Garantir que apiUrl tenha protocolo e não tenha barra no final
+      const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+      const url = `${baseUrl}/api/upload/json`;
+      
+      console.log('📡 Enviando para:', url); // Debug
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
