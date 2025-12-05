@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Search, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, FileText, RefreshCw, Users, Mail, TrendingUp, Pause, Play } from 'lucide-react'
+import { authFetch } from '@/hooks/useAuthFetch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,7 +40,7 @@ export default function BatchStatus({ apiUrl, batchId, refreshKey }: BatchStatus
     setError(null)
 
     try {
-      const response = await fetch(`${apiUrl}/api/upload/status/${id}`)
+      const response = await authFetch(`${apiUrl}/api/upload/status/${id}`)
       const data = await response.json()
 
       if (!response.ok) {

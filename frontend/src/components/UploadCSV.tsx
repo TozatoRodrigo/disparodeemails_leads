@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Upload, File, X, CheckCircle2, AlertCircle, Loader2, Info, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -71,8 +72,17 @@ export default function UploadCSV({ apiUrl, onSuccess }: UploadCSVProps) {
       const formData = new FormData()
       formData.append('file', file)
 
+      // Obter token de autenticação
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('Usuário não autenticado')
+      }
+
       const response = await fetch(`${apiUrl}/api/upload`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
         body: formData,
       })
 

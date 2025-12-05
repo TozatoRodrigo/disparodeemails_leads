@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle2, AlertCircle, Loader2, Info, Sparkles, Code2, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { authFetch } from '@/hooks/useAuthFetch'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -90,11 +91,8 @@ export default function PasteJSON({ apiUrl, onSuccess }: PasteJSONProps) {
       const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl
       const url = `${baseUrl}/api/upload/json`
       
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(leads),
       })
 

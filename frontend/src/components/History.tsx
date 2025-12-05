@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { RefreshCw, CheckCircle2, Clock, XCircle, FileText, Loader2, AlertCircle, ChevronRight, Calendar, Users, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { authFetch } from '@/hooks/useAuthFetch'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +27,7 @@ export default function History({ apiUrl, onSelectBatch }: HistoryProps) {
     setError(null)
 
     try {
-      const response = await fetch(`${apiUrl}/api/upload/history`)
+      const response = await authFetch(`${apiUrl}/api/upload/history`)
       const data = await response.json()
 
       if (!response.ok) {

@@ -1,10 +1,11 @@
 import express from 'express';
-import db from '../database/db.js';
+import { supabaseAdmin } from '../lib/supabase.js';
 
 const router = express.Router();
 
 // POST /api/webhook/resultado
-router.post('/resultado', (req, res) => {
+// Este endpoint NÃO requer autenticação - é chamado pelo Make.com
+router.post('/resultado', async (req, res) => {
   try {
     const { batchId, email, success, error } = req.body;
 
@@ -16,98 +17,96 @@ router.post('/resultado', (req, res) => {
       });
     }
 
-    // Normalizar email para lowercase (case-insensitive)
+    // Normalizar email para lowercase
     const normalizedEmail = email.trim().toLowerCase();
     
     console.log('📨 Callback recebido:');
     console.log('   Batch ID:', batchId);
-    console.log('   Email original:', email);
-    console.log('   Email normalizado:', normalizedEmail);
+    console.log('   Email:', normalizedEmail);
     console.log('   Success:', success);
     console.log('   Error:', error || 'N/A');
 
-    // Verificar se o lead existe
-    const existingLead = db.prepare(`
-      SELECT id, email, status FROM leads 
-      WHERE batch_id = ? AND LOWER(email) = ?
-    `).get(batchId, normalizedEmail);
+    // Verificar se o batch existe
+    const { data: batch, error: batchError } = await supabaseAdmin
+      .from('batches')
+      .select('id')
+      .eq('id', batchId)
+      .single();
 
-    if (!existingLead) {
-      console.log('⚠️ Lead não encontrado no banco:', { batchId, email: normalizedEmail });
-      // Listar leads do batch para debug
-      const allLeads = db.prepare('SELECT email FROM leads WHERE batch_id = ?').all(batchId);
-      console.log('   Leads no batch:', allLeads.map(l => l.email));
-      return res.json({ received: true, warning: 'Lead não encontrado, mas callback aceito' });
+    if (batchError || !batch) {
+      console.log('⚠️ Batch não encontrado:', batchId);
+      return res.json({ received: true, warning: 'Batch não encontrado' });
     }
 
-    console.log('   Lead encontrado:', existingLead);
+    // Atualizar status do lead
+    const { data: updatedLead, error: updateError } = await supabaseAdmin
+      .from('leads')
+      .update({
+        status: success ? 'sent' : 'error',
+        error_message: success ? null : (error || 'Erro desconhecido'),
+        sent_at: success ? new Date().toISOString() : null
+      })
+      .eq('batch_id', batchId)
+      .ilike('email', normalizedEmail)
+      .select();
 
-    // Atualizar status do lead (usando LOWER para case-insensitive)
-    const updateLead = db.prepare(`
-      UPDATE leads 
-      SET status = ?, 
-          error_message = ?,
-          sent_at = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE sent_at END
-      WHERE batch_id = ? AND LOWER(email) = ?
-    `);
-
-    if (success) {
-      const result = updateLead.run('sent', null, 1, batchId, normalizedEmail);
-      console.log('   ✅ Lead atualizado para SENT:', result.changes, 'linhas');
+    if (updateError) {
+      console.error('❌ Erro ao atualizar lead:', updateError);
     } else {
-      const result = updateLead.run('error', error || 'Erro desconhecido', 0, batchId, normalizedEmail);
-      console.log('   ❌ Lead atualizado para ERROR:', result.changes, 'linhas');
+      console.log('   ✅ Lead atualizado:', updatedLead?.length || 0, 'registros');
     }
 
-    // Verificar se todos os leads foram processados
-    const leadsStats = db.prepare(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(CASE WHEN status = 'sent' THEN 1 END) as enviados,
-        COUNT(CASE WHEN status = 'error' THEN 1 END) as erros,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pendentes
-      FROM leads 
-      WHERE batch_id = ?
-    `).get(batchId);
+    // Buscar estatísticas atualizadas
+    const { data: allLeads } = await supabaseAdmin
+      .from('leads')
+      .select('status')
+      .eq('batch_id', batchId);
 
-    console.log('📊 Status do batch:', leadsStats);
+    const total = allLeads?.length || 0;
+    const enviados = allLeads?.filter(l => l.status === 'sent').length || 0;
+    const erros = allLeads?.filter(l => l.status === 'error').length || 0;
+    const pendentes = allLeads?.filter(l => l.status === 'pending').length || 0;
 
-    const totalProcessados = leadsStats.enviados + leadsStats.erros;
+    console.log('📊 Status do batch:', { total, enviados, erros, pendentes });
 
     // Se todos foram processados, atualizar batch para completed
-    if (totalProcessados >= leadsStats.total) {
-      const errosArray = db.prepare(`
-        SELECT email, error_message 
-        FROM leads 
-        WHERE batch_id = ? AND status = 'error'
-      `).all(batchId);
+    if (pendentes === 0 && total > 0) {
+      // Buscar detalhes dos erros
+      const { data: errosData } = await supabaseAdmin
+        .from('leads')
+        .select('email, error_message')
+        .eq('batch_id', batchId)
+        .eq('status', 'error');
 
-      const errosJson = JSON.stringify(errosArray.map(e => ({
+      const errosArray = (errosData || []).map(e => ({
         email: e.email,
         error: e.error_message
-      })));
+      }));
 
-      const updateBatch = db.prepare(`
-        UPDATE batches 
-        SET status = 'completed',
-            sucessos = ?,
-            erros = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `);
+      const { error: updateBatchError } = await supabaseAdmin
+        .from('batches')
+        .update({
+          status: 'completed',
+          sucessos: enviados,
+          erros: errosArray
+        })
+        .eq('id', batchId);
 
-      updateBatch.run(leadsStats.enviados, errosJson, batchId);
-      console.log('🎉 Batch concluído:', batchId, '- Enviados:', leadsStats.enviados, '- Erros:', leadsStats.erros);
+      if (updateBatchError) {
+        console.error('❌ Erro ao atualizar batch:', updateBatchError);
+      } else {
+        console.log('🎉 Batch concluído:', batchId, '- Enviados:', enviados, '- Erros:', erros);
+      }
     } else {
-      console.log('⏳ Batch em progresso:', batchId, '- Processados:', totalProcessados, '/', leadsStats.total);
+      console.log('⏳ Batch em progresso:', batchId, '- Pendentes:', pendentes);
     }
 
-    res.json({ 
+    res.json({
       received: true,
-      stats: leadsStats
+      stats: { total, enviados, erros, pendentes }
     });
   } catch (error) {
-    console.error('❌ Erro ao processar callback:', error.message);
+    console.error('❌ Erro ao processar callback:', error);
     res.status(500).json({
       received: false,
       message: 'Erro ao processar callback'
@@ -116,4 +115,3 @@ router.post('/resultado', (req, res) => {
 });
 
 export default router;
-

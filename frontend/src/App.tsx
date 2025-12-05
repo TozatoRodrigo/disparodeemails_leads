@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import AuthPage from '@/components/auth/AuthPage'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Particles } from '@/components/magicui/particles'
 import UploadCSV from '@/components/UploadCSV'
@@ -26,11 +29,30 @@ const API_URL = getApiUrl()
 
 type TabId = 'upload' | 'json' | 'status' | 'history'
 
-function App() {
+function AppContent() {
+  const { user, loading, signOut } = useAuth()
   const [activeTab, setActiveTab] = useState<TabId>('upload')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 animate-spin text-orange-500 mx-auto mb-4" />
+          <p className="text-zinc-400">Carregando...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Not authenticated - show login
+  if (!user) {
+    return <AuthPage />
+  }
+
+  // Authenticated - show app
   const handleUploadSuccess = (batch: Batch) => {
     setSelectedBatchId(batch.batchId)
     setActiveTab('status')
@@ -68,7 +90,12 @@ function App() {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-gradient-radial from-orange-500/10 via-transparent to-transparent blur-3xl pointer-events-none z-0" />
 
       {/* Sidebar */}
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <Sidebar 
+        activeTab={activeTab} 
+        onTabChange={setActiveTab}
+        user={user}
+        onSignOut={signOut}
+      />
 
       {/* Main Content */}
       <main className="lg:ml-64 min-h-screen relative z-10">
@@ -111,6 +138,14 @@ function App() {
         </div>
       </main>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
 

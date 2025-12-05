@@ -1,11 +1,14 @@
 import { cn } from "@/lib/utils"
-import { Mail, Upload, FileText, BarChart3, History, Zap } from "lucide-react"
+import { Mail, Upload, FileText, BarChart3, History, Zap, LogOut, User } from "lucide-react"
+import type { User as SupabaseUser } from '@supabase/supabase-js'
 
 type TabId = 'upload' | 'json' | 'status' | 'history'
 
 interface SidebarProps {
   activeTab: TabId
   onTabChange: (tab: TabId) => void
+  user?: SupabaseUser | null
+  onSignOut?: () => void
 }
 
 const navItems = [
@@ -15,7 +18,10 @@ const navItems = [
   { id: 'history' as const, label: 'Histórico', icon: History, description: 'Batches anteriores' },
 ]
 
-export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, user, onSignOut }: SidebarProps) {
+  const userEmail = user?.email || ''
+  const userName = user?.user_metadata?.full_name || userEmail.split('@')[0] || 'Usuário'
+
   return (
     <>
       {/* Desktop Sidebar */}
@@ -39,6 +45,21 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             </div>
           </div>
         </div>
+
+        {/* User Info */}
+        {user && (
+          <div className="px-4 py-3 border-b border-zinc-800/50">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-600 to-rose-600 flex items-center justify-center">
+                <User className="w-4 h-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-200 truncate">{userName}</p>
+                <p className="text-xs text-zinc-500 truncate">{userEmail}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 p-4">
@@ -81,7 +102,8 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-zinc-800/50">
+        <div className="p-4 border-t border-zinc-800/50 space-y-3">
+          {/* Status */}
           <div className="p-4 rounded-xl bg-gradient-to-br from-zinc-900 to-zinc-800/50 border border-zinc-700/50">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -91,6 +113,17 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
               Conectado ao Make.com
             </p>
           </div>
+
+          {/* Logout Button */}
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all duration-200"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm font-medium">Sair</span>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -123,9 +156,20 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
               </button>
             )
           })}
+          {/* Mobile logout */}
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              className="flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-lg text-zinc-500"
+            >
+              <div className="p-1.5 rounded-lg">
+                <LogOut className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-medium">Sair</span>
+            </button>
+          )}
         </div>
       </nav>
     </>
   )
 }
-

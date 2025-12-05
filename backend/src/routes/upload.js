@@ -5,7 +5,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import db from '../database/db.js';
+import { supabaseAdmin } from '../lib/supabase.js';
+import { requireAuth } from '../middleware/auth.js';
 import { enviarParaMake } from '../services/makeService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,7 +15,6 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 // Configuração do Multer
-// Na Vercel, usar /tmp (único diretório writable)
 const isVercel = process.env.VERCEL === '1';
 const uploadsDir = isVercel 
   ? '/tmp/uploads'
@@ -37,7 +37,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedMimes = ['text/csv', 'application/vnd.ms-excel'];
     const allowedExts = ['.csv'];
@@ -57,8 +57,8 @@ function isValidEmail(email) {
   return emailRegex.test(email);
 }
 
-// Função auxiliar para processar leads (usada tanto para CSV quanto JSON)
-async function processarLeads(leads, filename = 'json-upload') {
+// Função auxiliar para processar leads
+async function processarLeads(leads, filename, userId) {
   // Validar colunas obrigatórias
   const requiredColumns = ['nome', 'email'];
   const firstRecord = leads[0];
@@ -108,61 +108,75 @@ async function processarLeads(leads, filename = 'json-upload') {
   // Gerar batchId único
   const batchId = uuidv4();
   console.log('🆔 Batch ID gerado:', batchId);
+  console.log('👤 User ID:', userId);
 
-  // Inserir batch no banco
-  const insertBatch = db.prepare(`
-    INSERT INTO batches (id, filename, total_leads, status)
-    VALUES (?, ?, ?, 'pending')
-  `);
-  insertBatch.run(batchId, filename, leadsValidos.length);
+  // Inserir batch no Supabase
+  const { data: batch, error: batchError } = await supabaseAdmin
+    .from('batches')
+    .insert({
+      id: batchId,
+      user_id: userId,
+      filename: filename,
+      total_leads: leadsValidos.length,
+      status: 'processing'
+    })
+    .select()
+    .single();
 
-  // Inserir leads no banco
-  const insertLead = db.prepare(`
-    INSERT INTO leads (batch_id, nome, email, empresa, status)
-    VALUES (?, ?, ?, ?, 'pending')
-  `);
+  if (batchError) {
+    console.error('❌ Erro ao inserir batch:', batchError);
+    throw new Error(`Erro ao criar batch: ${batchError.message}`);
+  }
 
-  const insertMany = db.transaction((leads) => {
-    for (const lead of leads) {
-      insertLead.run(batchId, lead.nome, lead.email, lead.empresa);
-    }
-  });
+  console.log('✅ Batch criado:', batch);
 
-  insertMany(leadsValidos);
+  // Inserir leads no Supabase
+  const leadsToInsert = leadsValidos.map(lead => ({
+    batch_id: batchId,
+    nome: lead.nome,
+    email: lead.email,
+    empresa: lead.empresa,
+    status: 'pending'
+  }));
 
-  // Atualizar status do batch para processing
-  const updateBatchStatus = db.prepare(`
-    UPDATE batches SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-  `);
-  updateBatchStatus.run(batchId);
+  const { error: leadsError } = await supabaseAdmin
+    .from('leads')
+    .insert(leadsToInsert);
 
-  // Enviar para Make.com (não bloqueia resposta)
+  if (leadsError) {
+    console.error('❌ Erro ao inserir leads:', leadsError);
+    throw new Error(`Erro ao inserir leads: ${leadsError.message}`);
+  }
+
+  console.log('✅ Leads inseridos:', leadsValidos.length);
+
+  // Enviar para Make.com
   const backendUrl = process.env.BACKEND_URL || 'https://disparodeemails-leads-backend.vercel.app';
   const callbackUrl = `${backendUrl}/api/webhook/resultado`;
   
   console.log('🚀 Preparando envio para Make.com...');
-  console.log('   Batch ID:', batchId);
-  console.log('   Total leads válidos:', leadsValidos.length);
   console.log('   Callback URL:', callbackUrl);
   
   enviarParaMake(batchId, leadsValidos, callbackUrl)
     .then(result => {
       if (!result.success) {
         console.error('❌ Erro ao enviar para Make.com:', result.error);
-        const updateBatchError = db.prepare(`
-          UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-        `);
-        updateBatchError.run(batchId);
+        supabaseAdmin
+          .from('batches')
+          .update({ status: 'error' })
+          .eq('id', batchId)
+          .then(() => console.log('Batch atualizado para erro'));
       } else {
         console.log('✅ Envio para Make.com iniciado com sucesso');
       }
     })
     .catch(error => {
       console.error('❌ Erro ao enviar para Make.com:', error);
-      const updateBatchError = db.prepare(`
-        UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-      `);
-      updateBatchError.run(batchId);
+      supabaseAdmin
+        .from('batches')
+        .update({ status: 'error' })
+        .eq('id', batchId)
+        .then(() => console.log('Batch atualizado para erro'));
     });
 
   return {
@@ -173,8 +187,8 @@ async function processarLeads(leads, filename = 'json-upload') {
   };
 }
 
-// POST /api/upload (CSV via arquivo)
-router.post('/', upload.single('file'), async (req, res) => {
+// POST /api/upload (CSV via arquivo) - Requer autenticação
+router.post('/', requireAuth, upload.single('file'), async (req, res) => {
   let filePath = null;
 
   try {
@@ -186,42 +200,30 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     filePath = req.file.path;
-    console.log('📁 Arquivo recebido:', req.file.originalname);
+    console.log('📄 Arquivo recebido:', req.file.originalname);
 
-    // Ler e parsear CSV
     const fileContent = await fs.readFile(filePath, 'utf-8');
+    
     const records = parse(fileContent, {
       columns: true,
       skip_empty_lines: true,
       trim: true
     });
 
-    console.log('🆔 Total de linhas no CSV:', records.length);
+    const result = await processarLeads(records, req.file.originalname, req.user.id);
 
-    // Usar função auxiliar para processar leads
-    const result = await processarLeads(records, req.file.originalname);
-
-    // Deletar arquivo temporário
-    await fs.unlink(filePath);
-    filePath = null;
-
-    console.log('✅ Upload processado com sucesso');
+    // Remover arquivo após processar
+    await fs.unlink(filePath).catch(console.error);
 
     res.json({
       success: true,
       ...result
     });
-
   } catch (error) {
     console.error('❌ Erro no upload:', error.message);
-
-    // Deletar arquivo temporário em caso de erro
+    
     if (filePath) {
-      try {
-        await fs.unlink(filePath);
-      } catch (unlinkError) {
-        console.error('Erro ao deletar arquivo temporário:', unlinkError);
-      }
+      await fs.unlink(filePath).catch(console.error);
     }
 
     res.status(400).json({
@@ -231,38 +233,28 @@ router.post('/', upload.single('file'), async (req, res) => {
   }
 });
 
-// POST /api/upload/json (JSON direto)
-router.post('/json', async (req, res) => {
+// POST /api/upload/json - Requer autenticação
+router.post('/json', requireAuth, async (req, res) => {
   try {
     let leads = req.body;
+    
+    // Aceitar tanto array direto quanto objeto com propriedade "leads"
+    if (leads && typeof leads === 'object' && !Array.isArray(leads)) {
+      if (leads.leads && Array.isArray(leads.leads)) {
+        leads = leads.leads;
+      }
+    }
 
-    // Aceitar diferentes formatos de JSON
-    if (Array.isArray(leads)) {
-      // Formato 1: Array direto
-      // leads já está no formato correto
-    } else if (leads.leads && Array.isArray(leads.leads)) {
-      // Formato 2: Objeto com propriedade "leads"
-      leads = leads.leads;
-    } else {
+    if (!Array.isArray(leads)) {
       return res.status(400).json({
         success: false,
-        message: 'Formato JSON inválido. Use um array de leads ou um objeto com propriedade "leads"'
+        message: 'Formato inválido. Envie um array de leads ou um objeto com propriedade "leads".'
       });
     }
 
-    if (!Array.isArray(leads) || leads.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'O JSON deve conter pelo menos um lead'
-      });
-    }
+    console.log('📨 JSON recebido com', leads.length, 'leads');
 
-    console.log('📋 JSON recebido com', leads.length, 'leads');
-
-    // Usar função auxiliar para processar leads
-    const result = await processarLeads(leads, 'json-upload');
-
-    console.log('✅ JSON processado com sucesso');
+    const result = await processarLeads(leads, 'json-upload', req.user.id);
 
     res.json({
       success: true,
@@ -277,43 +269,39 @@ router.post('/json', async (req, res) => {
   }
 });
 
-// GET /api/upload/status/:batchId
-router.get('/status/:batchId', (req, res) => {
+// GET /api/upload/status/:batchId - Requer autenticação
+router.get('/status/:batchId', requireAuth, async (req, res) => {
   try {
     const { batchId } = req.params;
+    const userId = req.user.id;
 
-    const batch = db.prepare('SELECT * FROM batches WHERE id = ?').get(batchId);
+    // Buscar batch que pertence ao usuário
+    const { data: batch, error } = await supabaseAdmin
+      .from('batches')
+      .select('*')
+      .eq('id', batchId)
+      .eq('user_id', userId)
+      .single();
 
-    if (!batch) {
+    if (error || !batch) {
       return res.status(404).json({
         success: false,
-        message: 'Batch não encontrado'
+        message: 'Batch não encontrado ou não autorizado'
       });
     }
-
-    // Contar leads enviados e com erro
-    const leadsStats = db.prepare(`
-      SELECT 
-        COUNT(CASE WHEN status = 'sent' THEN 1 END) as enviados,
-        COUNT(CASE WHEN status = 'error' THEN 1 END) as erros
-      FROM leads 
-      WHERE batch_id = ?
-    `).get(batchId);
-
-    const erros = JSON.parse(batch.erros || '[]');
 
     res.json({
       id: batch.id,
       filename: batch.filename,
       totalLeads: batch.total_leads,
       status: batch.status,
-      sucessos: leadsStats.enviados,
-      erros: erros,
+      sucessos: batch.sucessos,
+      erros: batch.erros || [],
       createdAt: batch.created_at,
       updatedAt: batch.updated_at
     });
   } catch (error) {
-    console.error('❌ Erro ao buscar status:', error.message);
+    console.error('❌ Erro ao buscar status:', error);
     res.status(500).json({
       success: false,
       message: 'Erro ao buscar status do batch'
@@ -321,42 +309,34 @@ router.get('/status/:batchId', (req, res) => {
   }
 });
 
-// GET /api/upload/history
-router.get('/history', (req, res) => {
+// GET /api/upload/history - Requer autenticação
+router.get('/history', requireAuth, async (req, res) => {
   try {
-    const batches = db.prepare(`
-      SELECT * FROM batches 
-      ORDER BY created_at DESC 
-      LIMIT 20
-    `).all();
+    const userId = req.user.id;
+    const limit = parseInt(req.query.limit) || 50;
 
-    const batchesWithStats = batches.map(batch => {
-      const leadsStats = db.prepare(`
-        SELECT 
-          COUNT(CASE WHEN status = 'sent' THEN 1 END) as enviados,
-          COUNT(CASE WHEN status = 'error' THEN 1 END) as erros
-        FROM leads 
-        WHERE batch_id = ?
-      `).get(batch.id);
+    const { data: batches, error } = await supabaseAdmin
+      .from('batches')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
-      return {
-        id: batch.id,
-        filename: batch.filename,
-        totalLeads: batch.total_leads,
-        status: batch.status,
-        sucessos: leadsStats.enviados,
-        erros: leadsStats.erros,
-        createdAt: batch.created_at,
-        updatedAt: batch.updated_at
-      };
-    });
+    if (error) {
+      throw error;
+    }
 
-    res.json({
-      success: true,
-      batches: batchesWithStats
-    });
+    res.json(batches.map(batch => ({
+      id: batch.id,
+      filename: batch.filename,
+      totalLeads: batch.total_leads,
+      status: batch.status,
+      sucessos: batch.sucessos,
+      erros: Array.isArray(batch.erros) ? batch.erros.length : 0,
+      createdAt: batch.created_at
+    })));
   } catch (error) {
-    console.error('❌ Erro ao buscar histórico:', error.message);
+    console.error('❌ Erro ao buscar histórico:', error);
     res.status(500).json({
       success: false,
       message: 'Erro ao buscar histórico'
@@ -365,4 +345,3 @@ router.get('/history', (req, res) => {
 });
 
 export default router;
-
