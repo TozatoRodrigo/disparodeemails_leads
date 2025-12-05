@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Search, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, FileText, RefreshCw, Users, Mail, TrendingUp } from 'lucide-react'
+import { Search, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, FileText, RefreshCw, Users, Mail, TrendingUp, Pause, Play } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,26 +16,26 @@ interface BatchStatusProps {
   refreshKey: number
 }
 
+const AUTO_REFRESH_INTERVAL = 5000 // 5 segundos
+
 export default function BatchStatus({ apiUrl, batchId, refreshKey }: BatchStatusProps) {
   const [status, setStatus] = useState<BatchStatusType | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [inputBatchId, setInputBatchId] = useState(batchId || '')
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL / 1000)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    if (batchId) {
-      setInputBatchId(batchId)
-      fetchStatus(batchId)
-    }
-  }, [batchId, refreshKey])
-
-  const fetchStatus = async (id: string) => {
+  // Função de fetch memoizada
+  const fetchStatus = useCallback(async (id: string, isAutoRefresh = false) => {
     if (!id.trim()) {
       setError('Por favor, informe o Batch ID')
       return
     }
 
-    setLoading(true)
+    if (!isAutoRefresh) setLoading(true)
     setError(null)
 
     try {
@@ -47,17 +47,63 @@ export default function BatchStatus({ apiUrl, batchId, refreshKey }: BatchStatus
       }
 
       setStatus(data)
+      
+      // Se completou ou erro, para o auto-refresh
+      if (data.status === 'completed' || data.status === 'error') {
+        setAutoRefresh(false)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao buscar status')
       setStatus(null)
     } finally {
-      setLoading(false)
+      if (!isAutoRefresh) setLoading(false)
     }
-  }
+  }, [apiUrl])
+
+  // Efeito para buscar status inicial
+  useEffect(() => {
+    if (batchId) {
+      setInputBatchId(batchId)
+      setAutoRefresh(true) // Ativa auto-refresh quando novo batch
+      fetchStatus(batchId)
+    }
+  }, [batchId, refreshKey, fetchStatus])
+
+  // Efeito para auto-refresh durante processamento
+  useEffect(() => {
+    // Limpa intervalos anteriores
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    if (countdownRef.current) clearInterval(countdownRef.current)
+
+    if (autoRefresh && inputBatchId && status?.status === 'processing') {
+      // Reset countdown
+      setCountdown(AUTO_REFRESH_INTERVAL / 1000)
+
+      // Countdown visual
+      countdownRef.current = setInterval(() => {
+        setCountdown(prev => (prev > 1 ? prev - 1 : AUTO_REFRESH_INTERVAL / 1000))
+      }, 1000)
+
+      // Auto-refresh
+      intervalRef.current = setInterval(() => {
+        fetchStatus(inputBatchId, true)
+      }, AUTO_REFRESH_INTERVAL)
+    }
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      if (countdownRef.current) clearInterval(countdownRef.current)
+    }
+  }, [autoRefresh, inputBatchId, status?.status, fetchStatus])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    setAutoRefresh(true) // Ativa auto-refresh ao buscar manualmente
     fetchStatus(inputBatchId)
+  }
+
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(prev => !prev)
   }
 
   const getStatusConfig = (status: string) => {
@@ -311,7 +357,7 @@ export default function BatchStatus({ apiUrl, batchId, refreshKey }: BatchStatus
               </CardContent>
             </Card>
 
-            {/* Processing Info */}
+            {/* Processing Info with Auto-Refresh */}
             {status.status === 'processing' && (
               <Card className="border-blue-500/20 bg-blue-500/5">
                 <CardContent className="p-4">
@@ -319,23 +365,59 @@ export default function BatchStatus({ apiUrl, batchId, refreshKey }: BatchStatus
                     <div className="relative">
                       <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
                     </div>
-                    <div>
+                    <div className="flex-1">
                       <p className="text-sm font-medium text-blue-300">
                         Processando emails via Make.com
                       </p>
                       <p className="text-xs text-zinc-500">
-                        Atualize a página para ver o progresso mais recente
+                        {autoRefresh 
+                          ? `Atualizando automaticamente em ${countdown}s...`
+                          : 'Auto-refresh pausado'}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => fetchStatus(inputBatchId)}
-                      className="ml-auto"
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Atualizar
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={toggleAutoRefresh}
+                        className={autoRefresh ? 'text-blue-400' : 'text-zinc-400'}
+                      >
+                        {autoRefresh ? (
+                          <><Pause className="w-4 h-4 mr-1" /> Pausar</>
+                        ) : (
+                          <><Play className="w-4 h-4 mr-1" /> Retomar</>
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => fetchStatus(inputBatchId)}
+                        disabled={loading}
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                        Atualizar
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Success Message */}
+            {status.status === 'completed' && (
+              <Card className="border-emerald-500/20 bg-emerald-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <p className="text-sm font-medium text-emerald-300">
+                        Processamento concluído!
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {status.sucessos} email{status.sucessos !== 1 ? 's' : ''} enviado{status.sucessos !== 1 ? 's' : ''} com sucesso
+                        {status.erros && status.erros.length > 0 && `, ${status.erros.length} com erro`}
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
