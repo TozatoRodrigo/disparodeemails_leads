@@ -69,16 +69,13 @@ export default function PasteJSON({ apiUrl, onSuccess }: PasteJSONProps) {
         throw new Error(`Alguns leads estão sem nome ou email`);
       }
 
-      const csvContent = convertJSONToCSV(leads);
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const file = new File([blob], `leads-${Date.now()}.csv`, { type: 'text/csv' });
-
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`${apiUrl}/api/upload`, {
+      // Enviar JSON diretamente (mais eficiente)
+      const response = await fetch(`${apiUrl}/api/upload/json`, {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(leads),
       });
 
       const data = await response.json();

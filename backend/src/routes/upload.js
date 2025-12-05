@@ -57,7 +57,115 @@ function isValidEmail(email) {
   return emailRegex.test(email);
 }
 
-// POST /api/upload
+// Função auxiliar para processar leads (usada tanto para CSV quanto JSON)
+async function processarLeads(leads, filename = 'json-upload') {
+  // Validar colunas obrigatórias
+  const requiredColumns = ['nome', 'email'];
+  const firstRecord = leads[0];
+  
+  if (!firstRecord) {
+    throw new Error('Nenhum lead encontrado');
+  }
+
+  const missingColumns = requiredColumns.filter(col => !(col in firstRecord));
+  if (missingColumns.length > 0) {
+    throw new Error(`Colunas obrigatórias ausentes: ${missingColumns.join(', ')}`);
+  }
+
+  // Validar e processar leads
+  const leadsValidos = [];
+  const leadsInvalidos = [];
+
+  for (const record of leads) {
+    const { nome, email, empresa } = record;
+
+    if (!nome || !email) {
+      leadsInvalidos.push({ nome: nome || 'N/A', email: email || 'N/A', motivo: 'Nome ou email vazio' });
+      continue;
+    }
+
+    if (!isValidEmail(email)) {
+      leadsInvalidos.push({ nome, email, motivo: 'Email inválido' });
+      continue;
+    }
+
+    leadsValidos.push({
+      nome: nome.trim(),
+      email: email.trim().toLowerCase(),
+      empresa: empresa ? empresa.trim() : null
+    });
+  }
+
+  // Limite de 200 leads
+  if (leadsValidos.length > 200) {
+    throw new Error(`Limite de 200 leads excedido. Encontrados: ${leadsValidos.length}`);
+  }
+
+  if (leadsValidos.length === 0) {
+    throw new Error('Nenhum lead válido encontrado');
+  }
+
+  // Gerar batchId único
+  const batchId = uuidv4();
+  console.log('🆔 Batch ID gerado:', batchId);
+
+  // Inserir batch no banco
+  const insertBatch = db.prepare(`
+    INSERT INTO batches (id, filename, total_leads, status)
+    VALUES (?, ?, ?, 'pending')
+  `);
+  insertBatch.run(batchId, filename, leadsValidos.length);
+
+  // Inserir leads no banco
+  const insertLead = db.prepare(`
+    INSERT INTO leads (batch_id, nome, email, empresa, status)
+    VALUES (?, ?, ?, ?, 'pending')
+  `);
+
+  const insertMany = db.transaction((leads) => {
+    for (const lead of leads) {
+      insertLead.run(batchId, lead.nome, lead.email, lead.empresa);
+    }
+  });
+
+  insertMany(leadsValidos);
+
+  // Atualizar status do batch para processing
+  const updateBatchStatus = db.prepare(`
+    UPDATE batches SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `);
+  updateBatchStatus.run(batchId);
+
+  // Enviar para Make.com (não bloqueia resposta)
+  const callbackUrl = `${process.env.BACKEND_URL}/api/webhook/resultado`;
+  
+  enviarParaMake(batchId, leadsValidos, callbackUrl)
+    .then(result => {
+      if (!result.success) {
+        console.error('❌ Erro ao enviar para Make.com:', result.error);
+        const updateBatchError = db.prepare(`
+          UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+        `);
+        updateBatchError.run(batchId);
+      }
+    })
+    .catch(error => {
+      console.error('❌ Erro ao enviar para Make.com:', error);
+      const updateBatchError = db.prepare(`
+        UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+      `);
+      updateBatchError.run(batchId);
+    });
+
+  return {
+    batchId,
+    totalLeads: leadsValidos.length,
+    leadsInvalidos: leadsInvalidos.length,
+    message: `Upload realizado com sucesso. ${leadsValidos.length} leads válidos processados.`
+  };
+}
+
+// POST /api/upload (CSV via arquivo)
 router.post('/', upload.single('file'), async (req, res) => {
   let filePath = null;
 
@@ -82,103 +190,8 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     console.log('🆔 Total de linhas no CSV:', records.length);
 
-    // Validar colunas obrigatórias
-    const requiredColumns = ['nome', 'email'];
-    const firstRecord = records[0];
-    
-    if (!firstRecord) {
-      throw new Error('CSV vazio ou sem dados válidos');
-    }
-
-    const missingColumns = requiredColumns.filter(col => !(col in firstRecord));
-    if (missingColumns.length > 0) {
-      throw new Error(`Colunas obrigatórias ausentes: ${missingColumns.join(', ')}`);
-    }
-
-    // Validar e processar leads
-    const leadsValidos = [];
-    const leadsInvalidos = [];
-
-    for (const record of records) {
-      const { nome, email, empresa } = record;
-
-      if (!nome || !email) {
-        leadsInvalidos.push({ nome: nome || 'N/A', email: email || 'N/A', motivo: 'Nome ou email vazio' });
-        continue;
-      }
-
-      if (!isValidEmail(email)) {
-        leadsInvalidos.push({ nome, email, motivo: 'Email inválido' });
-        continue;
-      }
-
-      leadsValidos.push({
-        nome: nome.trim(),
-        email: email.trim().toLowerCase(),
-        empresa: empresa ? empresa.trim() : null
-      });
-    }
-
-    // Limite de 200 leads
-    if (leadsValidos.length > 200) {
-      throw new Error(`Limite de 200 leads excedido. Encontrados: ${leadsValidos.length}`);
-    }
-
-    if (leadsValidos.length === 0) {
-      throw new Error('Nenhum lead válido encontrado no CSV');
-    }
-
-    // Gerar batchId único
-    const batchId = uuidv4();
-    console.log('🆔 Batch ID gerado:', batchId);
-
-    // Inserir batch no banco
-    const insertBatch = db.prepare(`
-      INSERT INTO batches (id, filename, total_leads, status)
-      VALUES (?, ?, ?, 'pending')
-    `);
-    insertBatch.run(batchId, req.file.originalname, leadsValidos.length);
-
-    // Inserir leads no banco
-    const insertLead = db.prepare(`
-      INSERT INTO leads (batch_id, nome, email, empresa, status)
-      VALUES (?, ?, ?, ?, 'pending')
-    `);
-
-    const insertMany = db.transaction((leads) => {
-      for (const lead of leads) {
-        insertLead.run(batchId, lead.nome, lead.email, lead.empresa);
-      }
-    });
-
-    insertMany(leadsValidos);
-
-    // Atualizar status do batch para processing
-    const updateBatchStatus = db.prepare(`
-      UPDATE batches SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-    `);
-    updateBatchStatus.run(batchId);
-
-    // Enviar para Make.com (não bloqueia resposta)
-    const callbackUrl = `${process.env.BACKEND_URL}/api/webhook/resultado`;
-    
-    enviarParaMake(batchId, leadsValidos, callbackUrl)
-      .then(result => {
-        if (!result.success) {
-          console.error('❌ Erro ao enviar para Make.com:', result.error);
-          const updateBatchError = db.prepare(`
-            UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-          `);
-          updateBatchError.run(batchId);
-        }
-      })
-      .catch(error => {
-        console.error('❌ Erro ao enviar para Make.com:', error);
-        const updateBatchError = db.prepare(`
-          UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-        `);
-        updateBatchError.run(batchId);
-      });
+    // Usar função auxiliar para processar leads
+    const result = await processarLeads(records, req.file.originalname);
 
     // Deletar arquivo temporário
     await fs.unlink(filePath);
@@ -188,10 +201,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     res.json({
       success: true,
-      batchId,
-      totalLeads: leadsValidos.length,
-      leadsInvalidos: leadsInvalidos.length,
-      message: `Upload realizado com sucesso. ${leadsValidos.length} leads válidos processados.`
+      ...result
     });
 
   } catch (error) {
@@ -206,6 +216,52 @@ router.post('/', upload.single('file'), async (req, res) => {
       }
     }
 
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// POST /api/upload/json (JSON direto)
+router.post('/json', async (req, res) => {
+  try {
+    let leads = req.body;
+
+    // Aceitar diferentes formatos de JSON
+    if (Array.isArray(leads)) {
+      // Formato 1: Array direto
+      // leads já está no formato correto
+    } else if (leads.leads && Array.isArray(leads.leads)) {
+      // Formato 2: Objeto com propriedade "leads"
+      leads = leads.leads;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Formato JSON inválido. Use um array de leads ou um objeto com propriedade "leads"'
+      });
+    }
+
+    if (!Array.isArray(leads) || leads.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'O JSON deve conter pelo menos um lead'
+      });
+    }
+
+    console.log('📋 JSON recebido com', leads.length, 'leads');
+
+    // Usar função auxiliar para processar leads
+    const result = await processarLeads(leads, 'json-upload');
+
+    console.log('✅ JSON processado com sucesso');
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('❌ Erro no upload JSON:', error.message);
     res.status(400).json({
       success: false,
       message: error.message
