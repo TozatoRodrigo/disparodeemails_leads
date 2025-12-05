@@ -25,8 +25,22 @@ const uploadsDir = isVercel
 fs.mkdir(uploadsDir, { recursive: true }).catch(console.error);
 
 // Middlewares
+// CORS - permitir múltiplas origens em produção
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? [process.env.FRONTEND_URL, 'https://disparodeemails-leads-frontend.vercel.app']
+  : ['http://localhost:3000', 'http://localhost:5173'];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: function (origin, callback) {
+    // Permitir requisições sem origin (mobile apps, Postman, etc)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permitir todas em produção por enquanto
+    }
+  },
   credentials: true
 }));
 

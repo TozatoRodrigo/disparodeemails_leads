@@ -3,5 +3,5 @@
 import app from '../src/index.js';
 
 // Exportar o app Express para a Vercel
+// A Vercel vai rotear todas as requisições para este handler
 export default app;
-
