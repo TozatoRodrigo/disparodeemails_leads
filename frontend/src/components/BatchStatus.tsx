@@ -1,210 +1,367 @@
-import { useState, useEffect } from 'react';
-import { Search, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, FileText } from 'lucide-react';
-import type { BatchStatus as BatchStatusType } from '../types';
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { Search, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, FileText, RefreshCw, Users, Mail, TrendingUp } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { BorderBeam } from '@/components/magicui/border-beam'
+import { NumberTicker } from '@/components/magicui/number-ticker'
+import type { BatchStatus as BatchStatusType } from '@/types'
 
 interface BatchStatusProps {
-  apiUrl: string;
-  batchId: string | null;
-  refreshKey: number;
+  apiUrl: string
+  batchId: string | null
+  refreshKey: number
 }
 
 export default function BatchStatus({ apiUrl, batchId, refreshKey }: BatchStatusProps) {
-  const [status, setStatus] = useState<BatchStatusType | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [inputBatchId, setInputBatchId] = useState(batchId || '');
+  const [status, setStatus] = useState<BatchStatusType | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [inputBatchId, setInputBatchId] = useState(batchId || '')
 
   useEffect(() => {
     if (batchId) {
-      setInputBatchId(batchId);
-      fetchStatus(batchId);
+      setInputBatchId(batchId)
+      fetchStatus(batchId)
     }
-  }, [batchId, refreshKey]);
+  }, [batchId, refreshKey])
 
   const fetchStatus = async (id: string) => {
     if (!id.trim()) {
-      setError('Por favor, informe o Batch ID');
-      return;
+      setError('Por favor, informe o Batch ID')
+      return
     }
 
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
 
     try {
-      const response = await fetch(`${apiUrl}/api/upload/status/${id}`);
-      const data = await response.json();
+      const response = await fetch(`${apiUrl}/api/upload/status/${id}`)
+      const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.message || 'Erro ao buscar status');
+        throw new Error(data.message || 'Erro ao buscar status')
       }
 
-      setStatus(data);
+      setStatus(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao buscar status');
-      setStatus(null);
+      setError(err instanceof Error ? err.message : 'Erro ao buscar status')
+      setStatus(null)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchStatus(inputBatchId);
-  };
+    e.preventDefault()
+    fetchStatus(inputBatchId)
+  }
 
   const getStatusConfig = (status: string) => {
     switch (status) {
       case 'completed':
         return {
-          bg: 'bg-green-50',
-          border: 'border-green-200',
-          text: 'text-green-700',
+          bg: 'bg-emerald-500/10',
+          border: 'border-emerald-500/30',
+          text: 'text-emerald-400',
           icon: CheckCircle2,
-          label: 'Concluído'
-        };
+          label: 'Concluído',
+          variant: 'success' as const,
+        }
       case 'processing':
         return {
-          bg: 'bg-blue-50',
-          border: 'border-blue-200',
-          text: 'text-blue-700',
+          bg: 'bg-blue-500/10',
+          border: 'border-blue-500/30',
+          text: 'text-blue-400',
           icon: Clock,
-          label: 'Processando'
-        };
+          label: 'Processando',
+          variant: 'processing' as const,
+        }
       case 'error':
         return {
-          bg: 'bg-red-50',
-          border: 'border-red-200',
-          text: 'text-red-700',
+          bg: 'bg-rose-500/10',
+          border: 'border-rose-500/30',
+          text: 'text-rose-400',
           icon: XCircle,
-          label: 'Erro'
-        };
+          label: 'Erro',
+          variant: 'destructive' as const,
+        }
       default:
         return {
-          bg: 'bg-gray-50',
-          border: 'border-gray-200',
-          text: 'text-gray-700',
+          bg: 'bg-zinc-500/10',
+          border: 'border-zinc-500/30',
+          text: 'text-zinc-400',
           icon: Clock,
-          label: 'Pendente'
-        };
+          label: 'Pendente',
+          variant: 'secondary' as const,
+        }
     }
-  };
+  }
+
+  const calculateProgress = () => {
+    if (!status) return 0
+    const total = status.totalLeads
+    const processed = status.sucessos + (status.erros?.length || 0)
+    return Math.round((processed / total) * 100)
+  }
 
   return (
-    <div className="space-y-4">
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          type="text"
-          value={inputBatchId}
-          onChange={(e) => setInputBatchId(e.target.value)}
-          placeholder="Cole o Batch ID aqui"
-          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        />
-        <button
-          type="submit"
-          disabled={loading || !inputBatchId.trim()}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              <Search className="w-4 h-4" />
-              Buscar
-            </>
-          )}
-        </button>
-      </form>
+    <div className="space-y-6">
+      {/* Search Form */}
+      <Card>
+        <CardContent className="p-4">
+          <form onSubmit={handleSubmit} className="flex gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <Input
+                type="text"
+                value={inputBatchId}
+                onChange={(e) => setInputBatchId(e.target.value)}
+                placeholder="Cole o Batch ID aqui..."
+                className="pl-10"
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={loading || !inputBatchId.trim()}
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Search className="w-4 h-4 mr-2" />
+                  Buscar
+                </>
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-          <p className="text-sm text-red-800">{error}</p>
-        </div>
-      )}
+      {/* Error Message */}
+      <AnimatePresence mode="wait">
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <Card className="border-rose-500/30 bg-rose-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-400 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-rose-300">{error}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {status && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-              <p className="text-xs text-gray-600 mb-1">Arquivo</p>
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-gray-400" />
-                <p className="font-medium text-gray-900 text-sm">{status.filename}</p>
-              </div>
-            </div>
-            <div className={`p-4 ${getStatusConfig(status.status).bg} border ${getStatusConfig(status.status).border} rounded-lg`}>
-              <p className="text-xs text-gray-600 mb-1">Status</p>
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const Icon = getStatusConfig(status.status).icon;
-                  return <Icon className={`w-4 h-4 ${getStatusConfig(status.status).text}`} />;
-                })()}
-                <span className={`font-medium text-sm ${getStatusConfig(status.status).text}`}>
-                  {getStatusConfig(status.status).label}
-                </span>
-              </div>
-            </div>
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-xs text-gray-600 mb-1">Total de Leads</p>
-              <p className="text-2xl font-bold text-blue-600">{status.totalLeads}</p>
-            </div>
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-xs text-gray-600 mb-1">Sucessos</p>
-              <p className="text-2xl font-bold text-green-600">{status.sucessos}</p>
-            </div>
-          </div>
+      {/* Status Display */}
+      <AnimatePresence mode="wait">
+        {status && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-6"
+          >
+            {/* Main Status Card */}
+            <Card className="relative overflow-hidden">
+              {status.status === 'processing' && (
+                <BorderBeam size={250} duration={8} colorFrom="#3b82f6" colorTo="#60a5fa" />
+              )}
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-zinc-400" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg">{status.filename}</CardTitle>
+                      <p className="text-xs text-zinc-500 font-mono">{inputBatchId}</p>
+                    </div>
+                  </div>
+                  <Badge variant={getStatusConfig(status.status).variant}>
+                    {(() => {
+                      const Icon = getStatusConfig(status.status).icon
+                      return <Icon className="w-3 h-3 mr-1" />
+                    })()}
+                    {getStatusConfig(status.status).label}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {/* Progress Bar */}
+                {status.status === 'processing' && (
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-zinc-400">Progresso</span>
+                      <span className="text-sm font-medium text-zinc-100">
+                        {calculateProgress()}%
+                      </span>
+                    </div>
+                    <Progress value={calculateProgress()} className="h-2" />
+                  </div>
+                )}
 
-          {status.erros && status.erros.length > 0 && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertCircle className="w-4 h-4 text-red-600" />
-                <p className="font-semibold text-red-900 text-sm">
-                  Erros ({status.erros.length})
-                </p>
-              </div>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {status.erros.map((erro, index) => (
-                  <div key={index} className="p-2 bg-white rounded border border-red-100">
-                    <p className="text-xs text-red-800">
-                      <span className="font-medium">{erro.email}:</span> {erro.error}
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="w-4 h-4 text-zinc-500" />
+                      <span className="text-xs text-zinc-500">Total Leads</span>
+                    </div>
+                    <p className="text-2xl font-bold text-zinc-100">
+                      <NumberTicker value={status.totalLeads} />
                     </p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-            <div>
-              <p className="text-xs text-gray-600 mb-1">Criado em</p>
-              <p className="text-sm font-medium text-gray-900">{new Date(status.createdAt).toLocaleString('pt-BR')}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600 mb-1">Atualizado em</p>
-              <p className="text-sm font-medium text-gray-900">{new Date(status.updatedAt).toLocaleString('pt-BR')}</p>
-            </div>
-          </div>
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      <span className="text-xs text-emerald-400">Enviados</span>
+                    </div>
+                    <p className="text-2xl font-bold text-emerald-400">
+                      <NumberTicker value={status.sucessos} />
+                    </p>
+                  </div>
 
-          {status.status === 'processing' && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-                <p className="text-sm text-blue-800">
-                  O batch está sendo processado. Os emails estão sendo enviados pelo Make.com.
-                  Atualize a página para ver o progresso.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+                  <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <XCircle className="w-4 h-4 text-rose-500" />
+                      <span className="text-xs text-rose-400">Erros</span>
+                    </div>
+                    <p className="text-2xl font-bold text-rose-400">
+                      <NumberTicker value={status.erros?.length || 0} />
+                    </p>
+                  </div>
 
+                  <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingUp className="w-4 h-4 text-blue-500" />
+                      <span className="text-xs text-blue-400">Taxa</span>
+                    </div>
+                    <p className="text-2xl font-bold text-blue-400">
+                      {status.totalLeads > 0 
+                        ? Math.round((status.sucessos / status.totalLeads) * 100)
+                        : 0}%
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Errors List */}
+            {status.erros && status.erros.length > 0 && (
+              <Card className="border-rose-500/20">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-rose-400" />
+                    <CardTitle className="text-base text-rose-300">
+                      Erros ({status.erros.length})
+                    </CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                    {status.erros.map((erro, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="p-3 bg-rose-500/5 rounded-lg border border-rose-500/10"
+                      >
+                        <div className="flex items-start gap-2">
+                          <Mail className="w-4 h-4 text-rose-400 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-sm font-medium text-zinc-300">{erro.email}</p>
+                            <p className="text-xs text-rose-400">{erro.error}</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Timestamps */}
+            <Card className="bg-zinc-900/50">
+              <CardContent className="p-4">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-zinc-500 mb-1">Criado em</p>
+                    <p className="text-sm font-medium text-zinc-300">
+                      {new Date(status.createdAt).toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-zinc-500 mb-1">Atualizado em</p>
+                    <p className="text-sm font-medium text-zinc-300">
+                      {new Date(status.updatedAt).toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Processing Info */}
+            {status.status === 'processing' && (
+              <Card className="border-blue-500/20 bg-blue-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-blue-300">
+                        Processando emails via Make.com
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Atualize a página para ver o progresso mais recente
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => fetchStatus(inputBatchId)}
+                      className="ml-auto"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Atualizar
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Empty State */}
       {!status && !error && !loading && (
-        <div className="text-center py-12">
-          <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-sm text-gray-500">Informe um Batch ID para ver o status</p>
-        </div>
+        <Card className="bg-zinc-900/30">
+          <CardContent className="py-16">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-zinc-800 flex items-center justify-center">
+                <FileText className="w-8 h-8 text-zinc-600" />
+              </div>
+              <h3 className="text-lg font-medium text-zinc-400 mb-2">
+                Nenhum batch selecionado
+              </h3>
+              <p className="text-sm text-zinc-500">
+                Informe um Batch ID acima para ver o status
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
-  );
+  )
 }
