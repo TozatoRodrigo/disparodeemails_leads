@@ -137,7 +137,13 @@ async function processarLeads(leads, filename = 'json-upload') {
   updateBatchStatus.run(batchId);
 
   // Enviar para Make.com (não bloqueia resposta)
-  const callbackUrl = `${process.env.BACKEND_URL}/api/webhook/resultado`;
+  const backendUrl = process.env.BACKEND_URL || 'https://disparodeemails-leads-backend.vercel.app';
+  const callbackUrl = `${backendUrl}/api/webhook/resultado`;
+  
+  console.log('🚀 Preparando envio para Make.com...');
+  console.log('   Batch ID:', batchId);
+  console.log('   Total leads válidos:', leadsValidos.length);
+  console.log('   Callback URL:', callbackUrl);
   
   enviarParaMake(batchId, leadsValidos, callbackUrl)
     .then(result => {
@@ -147,6 +153,8 @@ async function processarLeads(leads, filename = 'json-upload') {
           UPDATE batches SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ?
         `);
         updateBatchError.run(batchId);
+      } else {
+        console.log('✅ Envio para Make.com iniciado com sucesso');
       }
     })
     .catch(error => {

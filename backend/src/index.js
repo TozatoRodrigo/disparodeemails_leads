@@ -55,8 +55,42 @@ app.use('/api/webhook', webhookRoutes);
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    makeWebhookConfigured: !!process.env.MAKE_WEBHOOK_URL,
+    backendUrl: process.env.BACKEND_URL || 'https://disparodeemails-leads-backend.vercel.app'
   });
+});
+
+// Rota de teste para Make.com (apenas para debug)
+app.post('/api/test/make-webhook', async (req, res) => {
+  try {
+    const { enviarParaMake } = await import('./services/makeService.js');
+    const testBatchId = 'test-' + Date.now();
+    const testLeads = [
+      {
+        nome: 'Teste',
+        email: 'teste@example.com',
+        empresa: 'Empresa Teste'
+      }
+    ];
+    const callbackUrl = `${process.env.BACKEND_URL || 'https://disparodeemails-leads-backend.vercel.app'}/api/webhook/resultado`;
+    
+    console.log('🧪 Testando envio para Make.com...');
+    const result = await enviarParaMake(testBatchId, testLeads, callbackUrl);
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Teste enviado com sucesso para Make.com' : 'Erro ao enviar teste',
+      error: result.error,
+      batchId: testBatchId,
+      makeWebhookUrl: process.env.MAKE_WEBHOOK_URL ? '✅ Configurado' : '❌ Não configurado'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Rota raiz
