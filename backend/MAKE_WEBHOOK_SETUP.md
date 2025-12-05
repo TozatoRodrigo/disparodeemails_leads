@@ -104,6 +104,13 @@ Após enviar cada email, você precisa enviar o resultado de volta para o backen
 2. Configure:
    - **Method**: `POST`
    - **URL**: `{{1.callbackUrl}}` (vem do webhook inicial)
+   
+   **Em produção, o callbackUrl será automaticamente:**
+   ```
+   https://disparodeemails-leads-backend.vercel.app/api/webhook/resultado
+   ```
+   
+   ⚠️ **Importante**: Certifique-se de que o Make.com pode acessar esta URL pública.
    - **Headers**:
      ```
      Content-Type: application/json

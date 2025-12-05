@@ -67,22 +67,28 @@ npm run dev
 
 ## 🌐 Deploy na Vercel
 
+### ✅ Projetos em Produção
+
+- **Backend**: https://disparodeemails-leads-backend.vercel.app
+- **Frontend**: https://disparodeemails-leads-frontend.vercel.app
+
 ### Configuração Automática
 
 O projeto está configurado para deploy automático na Vercel:
 
-1. **Conecte o repositório GitHub à Vercel**
-2. **Configure as variáveis de ambiente** na Vercel:
-   - `MAKE_WEBHOOK_URL` - URL do webhook do Make.com
-   - `BACKEND_URL` - URL do backend em produção
-   - `FRONTEND_URL` - URL do frontend em produção
+- ✅ **Backend**: Deploy como função serverless
+- ✅ **Frontend**: Deploy como site estático
+- ✅ **Deploy automático** a cada push para `main`
 
-3. **Deploy automático** acontecerá a cada push
+### Variáveis de Ambiente (Produção)
 
-### Estrutura de Deploy
+**Backend:**
+- `MAKE_WEBHOOK_URL` - URL do webhook do Make.com
+- `BACKEND_URL` - https://disparodeemails-leads-backend.vercel.app
+- `FRONTEND_URL` - https://disparodeemails-leads-frontend.vercel.app
 
-- **Backend**: Deploy como função serverless na Vercel
-- **Frontend**: Deploy como site estático na Vercel
+**Frontend:**
+- `VITE_API_URL` - https://disparodeemails-leads-backend.vercel.app
 
 ## 📋 Variáveis de Ambiente
 
