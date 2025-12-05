@@ -1,0 +1,25 @@
+{
+  "name": "email-dispatcher",
+  "version": "1.0.0",
+  "description": "Sistema completo de disparo de e-mails via Make.com",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:backend": "cd backend && npm install",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  },
+  "keywords": ["email", "dispatcher", "make.com", "react", "nodejs"],
+  "author": "TozatoRodrigo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TozatoRodrigo/disparodeemails_leads.git"
+  }
+}
+
