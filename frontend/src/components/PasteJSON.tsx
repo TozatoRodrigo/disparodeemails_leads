@@ -13,20 +13,6 @@ export default function PasteJSON({ apiUrl, onSuccess }: PasteJSONProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<Batch | null>(null);
 
-  const convertJSONToCSV = (leads: Lead[]): string => {
-    const headers = ['nome', 'email', 'empresa'];
-    const rows = leads.map(lead => [
-      lead.nome || '',
-      lead.email || '',
-      lead.empresa || ''
-    ]);
-    
-    return [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
