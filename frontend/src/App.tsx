@@ -6,7 +6,25 @@ import BatchStatus from './components/BatchStatus';
 import History from './components/History';
 import type { Batch } from './types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Construir URL da API corretamente
+const getApiUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  
+  // Se não tiver protocolo, adicionar https://
+  if (envUrl && !envUrl.startsWith('http://') && !envUrl.startsWith('https://')) {
+    return `https://${envUrl}`;
+  }
+  
+  // Se tiver protocolo, usar direto
+  if (envUrl) {
+    return envUrl;
+  }
+  
+  // Fallback para desenvolvimento local
+  return 'http://localhost:3001';
+};
+
+const API_URL = getApiUrl();
 
 const tabs = [
   { id: 'upload', label: 'Upload CSV', icon: Upload },
