@@ -91,6 +91,16 @@ Após configurar, verifique:
 2. **Verificar logs na Vercel** (Deployments → Functions)
 3. **Verificar variável de ambiente** (Settings → Environment Variables)
 4. **Testar em modo anônimo/privado**
+5. **Verificar console do navegador** - O código agora mostra a URL sendo usada no console
+
+## 🔍 Debug
+
+O código agora inclui um `console.log` que mostra a URL sendo usada. Abra o console do navegador (F12) e verifique:
+
+- ✅ URL correta: `https://disparodeemails-leads-backend.vercel.app/api/upload/json`
+- ❌ URL incorreta: `https://disparodeemails-leads-frontend.vercel.app/disparodeemails-leads-backend.vercel.app/api/upload/json`
+
+Se a URL estiver incorreta, verifique a variável `VITE_API_URL` na Vercel.
 
 ## 🔗 URLs Corretas
 
