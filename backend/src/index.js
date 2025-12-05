@@ -93,6 +93,34 @@ app.post('/api/test/make-webhook', async (req, res) => {
   }
 });
 
+// Endpoint de debug para verificar leads de um batch
+app.get('/api/debug/batch/:batchId', async (req, res) => {
+  try {
+    const { default: db } = await import('./database/db.js');
+    const { batchId } = req.params;
+    
+    const batch = db.prepare('SELECT * FROM batches WHERE id = ?').get(batchId);
+    const leads = db.prepare('SELECT * FROM leads WHERE batch_id = ?').all(batchId);
+    
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch não encontrado' });
+    }
+    
+    res.json({
+      batch,
+      leads,
+      summary: {
+        total: leads.length,
+        pending: leads.filter(l => l.status === 'pending').length,
+        sent: leads.filter(l => l.status === 'sent').length,
+        error: leads.filter(l => l.status === 'error').length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Rota raiz
 app.get('/', (req, res) => {
   res.json({
@@ -103,7 +131,8 @@ app.get('/', (req, res) => {
       status: 'GET /api/upload/status/:batchId',
       history: 'GET /api/upload/history',
       webhook: 'POST /api/webhook/resultado',
-      health: 'GET /health'
+      health: 'GET /health',
+      debug: 'GET /api/debug/batch/:batchId'
     }
   });
 });
